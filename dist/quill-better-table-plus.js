@@ -73,7 +73,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /******/
 /******/ 	var hotApplyOnUpdate = true;
 /******/ 	// eslint-disable-next-line no-unused-vars
-/******/ 	var hotCurrentHash = "16c14c14290922e20df7";
+/******/ 	var hotCurrentHash = "458d6d45140ba089d8f6";
 /******/ 	var hotRequestTimeout = 10000;
 /******/ 	var hotCurrentModuleData = {};
 /******/ 	var hotCurrentChildModule;
@@ -1066,11 +1066,13 @@ class table_column_tool_TableColumnTool {
       top: `${tableViewRect.top - containerRect.top + parent.scrollTop - COL_TOOL_HEIGHT - 5}px`
     });
   }
-  createToolCell() {
+  createToolCell(isClassName = true) {
     const toolCell = document.createElement('div');
     toolCell.classList.add('qlbt-col-tool-cell');
     const resizeHolder = document.createElement('div');
-    resizeHolder.classList.add('qlbt-col-tool-cell-holder');
+    if (isClassName) {
+      resizeHolder.classList.add('qlbt-col-tool-cell-holder');
+    }
     css(toolCell, {
       'height': `${COL_TOOL_CELL_HEIGHT}px`
     });
@@ -1081,28 +1083,33 @@ class table_column_tool_TableColumnTool {
     const tableContainer = external_commonjs_quill_commonjs2_quill_amd_quill_root_Quill_default.a.find(this.table);
     const CellsInFirstRow = tableContainer.children.tail.children.head.children;
     const tableCols = tableContainer.colGroup().children;
+    const tableWidth = tableContainer.children.tail.domNode.clientWidth;
     const cellsNumber = computeCellsNumber(CellsInFirstRow);
     let existCells = Array.from(this.domNode.querySelectorAll('.qlbt-col-tool-cell'));
-    for (let index = 0; index < Math.max(cellsNumber, existCells.length); index++) {
+    const totalCount = Math.max(cellsNumber, existCells.length);
+    for (let index = 0; index < totalCount; index++) {
       let col = tableCols.at(index);
-      let colWidth = col && parseInt(col.formats()[col.statics.blotName].width, 10);
+      let colWidth = col && col.attributes.domNode.clientWidth;
       // if cell already exist
       let toolCell = null;
       if (!existCells[index]) {
-        toolCell = this.createToolCell();
+        toolCell = this.createToolCell(index + 1 !== totalCount);
         this.domNode.appendChild(toolCell);
         this.addColCellHolderHandler(toolCell);
         // set tool cell min-width
+        const colWidthRate = (colWidth / tableWidth * 100).toFixed(2);
         css(toolCell, {
-          'min-width': `${colWidth}px`
+          'min-width': `${colWidthRate}%`
         });
       } else if (existCells[index] && index >= cellsNumber) {
         existCells[index].remove();
       } else {
         toolCell = existCells[index];
+        const colWidthRate = (colWidth / tableWidth * 100).toFixed(2);
+
         // set tool cell min-width
         css(toolCell, {
-          'min-width': `${colWidth}px`
+          'min-width': `${colWidthRate}%`
         });
       }
     }
@@ -1142,10 +1149,17 @@ class table_column_tool_TableColumnTool {
       const existCells = Array.from(this.domNode.querySelectorAll('.qlbt-col-tool-cell'));
       const colIndex = existCells.indexOf(cell);
       const colBlot = tableContainer.colGroup().children.at(colIndex);
+      const nextColBlot = colBlot.next;
+      const nextCell = nextColBlot.domNode;
+      const nextCellWidth = nextCell.clientWidth;
       if (dragging) {
         colBlot.format('width', width0 + delta);
+        nextColBlot.format('width', nextCellWidth - delta);
         css(cell, {
           'min-width': `${width0 + delta}px`
+        });
+        css(nextCell, {
+          'min-width': `${nextCellWidth - delta}px`
         });
         x0 = 0;
         x = 0;
@@ -1163,6 +1177,7 @@ class table_column_tool_TableColumnTool {
       tableContainer.updateTableWidth();
       const tableSelection = this.quill.getModule('better-table-plus').tableSelection;
       tableSelection && tableSelection.clearSelection();
+      this.updateToolCells();
     };
     const handleMousedown = e => {
       document.addEventListener('mousemove', handleDrag, false);
@@ -1185,7 +1200,9 @@ class table_column_tool_TableColumnTool {
       width0 = cellRect.width;
       $holder.classList.add('dragging');
     };
-    $holder.addEventListener('mousedown', handleMousedown, false);
+    if ($holder !== null) {
+      $holder.addEventListener('mousedown', handleMousedown, false);
+    }
   }
   colToolCells() {
     return Array.from(this.domNode.querySelectorAll('.qlbt-col-tool-cell'));
@@ -1585,6 +1602,13 @@ class TableCol extends table_Block {
       return formats;
     }, {});
   }
+  formats(value) {
+    const superFormats = super.formats();
+    if (value) {
+      this.domNode.setAttribute("width", value);
+    }
+    return superFormats;
+  }
   format(name, value) {
     if (COL_ATTRIBUTES.indexOf(name) > -1) {
       this.domNode.setAttribute(`${name}`, value || COL_DEFAULT[name]);
@@ -1603,8 +1627,7 @@ TableColGroup.blotName = "table-col-group";
 TableColGroup.tagName = "colgroup";
 class table_TableContainer extends Container {
   static create() {
-    let node = super.create();
-    return node;
+    return super.create();
   }
   constructor(scroll, domNode) {
     super(scroll, domNode);
@@ -1614,11 +1637,17 @@ class table_TableContainer extends Container {
     setTimeout(() => {
       const colGroup = this.colGroup();
       if (!colGroup) return;
-      const tableWidth = colGroup.children.reduce((sumWidth, col) => {
-        sumWidth = sumWidth + parseInt(col.formats()[TableCol.blotName].width, 10);
-        return sumWidth;
-      }, 0);
-      this.domNode.style.width = `${tableWidth}px`;
+      const tableWidth = this.domNode.clientWidth;
+
+      // 需要进行 100% 宽度格式化的场景
+      //    1. 全部列宽度都是非 % 结尾
+      //    2. 不全是 % 结尾
+      colGroup.children.reduce((_, col) => {
+        const colWidthRate = (col.domNode.clientWidth / tableWidth * 100).toFixed(2);
+        col.formats(colWidthRate + "%");
+        return null;
+      });
+      // this.domNode.style.width = `100%`
     }, 0);
   }
   cells(column) {
@@ -1627,9 +1656,7 @@ class table_TableContainer extends Container {
   colGroup() {
     return this.children.head;
   }
-  deleteColumns(compareRect) {
-    let delIndexes = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : [];
-    let editorWrapper = arguments.length > 2 ? arguments[2] : undefined;
+  deleteColumns(compareRect, delIndexes = [], editorWrapper) {
     const [body] = this.descendants(TableBody);
     if (body == null || body.children.head == null) return;
     const tableCells = this.descendants(TableCell);
@@ -1657,7 +1684,7 @@ class table_TableContainer extends Container {
     });
     modifiedCells.forEach(cell => {
       const cellColspan = parseInt(cell.formats().colspan, 10);
-      const cellWidth = parseInt(cell.formats().width, 10);
+      // const cellWidth = parseInt(cell.formats().width, 10)
       cell.format('colspan', cellColspan - delIndexes.length);
     });
     this.updateTableWidth();
@@ -1752,9 +1779,7 @@ class table_TableContainer extends Container {
       tableRow.appendChild(tableCell);
     }
   }
-  insertColumn(compareRect, colIndex) {
-    let isRight = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
-    let editorWrapper = arguments.length > 3 ? arguments[3] : undefined;
+  insertColumn(compareRect, colIndex, isRight = true, editorWrapper) {
     const [body] = this.descendants(TableBody);
     const [tableColGroup] = this.descendants(TableColGroup);
     const tableCols = this.descendants(TableCol);
@@ -2436,12 +2461,11 @@ class table_operation_menu_TableOperationMenu {
     document.removeEventListener("click", this.destroyHandler, false);
     return null;
   }
-  menuInitial(_ref) {
-    let {
-      table,
-      left,
-      top
-    } = _ref;
+  menuInitial({
+    table,
+    left,
+    top
+  }) {
     this.domNode = document.createElement('div');
     this.domNode.classList.add('qlbt-operation-menu');
     css(this.domNode, {
@@ -2507,12 +2531,11 @@ class table_operation_menu_TableOperationMenu {
     }
     return node;
   }
-  menuItemCreator(_ref2) {
-    let {
-      text,
-      iconSrc,
-      handler
-    } = _ref2;
+  menuItemCreator({
+    text,
+    iconSrc,
+    handler
+  }) {
     const node = document.createElement('div');
     node.classList.add('qlbt-operation-menu-item');
     const iconSpan = document.createElement('span');
@@ -2740,7 +2763,7 @@ function matchTable(node, delta, scroll) {
 
 const Module = external_commonjs_quill_commonjs2_quill_amd_quill_root_Quill_default.a.import('core/module');
 const quill_better_table_plus_Delta = external_commonjs_quill_commonjs2_quill_amd_quill_root_Quill_default.a.import('delta');
-class quill_better_table_plus_BetterTable extends Module {
+class quill_better_table_plus_BetterTablePlus extends Module {
   static register() {
     external_commonjs_quill_commonjs2_quill_amd_quill_root_Quill_default.a.register(TableCol, true);
     external_commonjs_quill_commonjs2_quill_amd_quill_root_Quill_default.a.register(TableColGroup, true);
@@ -2750,11 +2773,9 @@ class quill_better_table_plus_BetterTable extends Module {
     external_commonjs_quill_commonjs2_quill_amd_quill_root_Quill_default.a.register(TableBody, true);
     external_commonjs_quill_commonjs2_quill_amd_quill_root_Quill_default.a.register(table_TableContainer, true);
     external_commonjs_quill_commonjs2_quill_amd_quill_root_Quill_default.a.register(table_TableViewWrapper, true);
-    external_commonjs_quill_commonjs2_quill_amd_quill_root_Quill_default.a.register(table_TableViewWrapper, true);
     // register customized Header，overwriting quill built-in Header
     // Quill.register('formats/header', Header, true);
   }
-
   constructor(quill, options) {
     super(quill, options);
 
@@ -2845,8 +2866,7 @@ class quill_better_table_plus_BetterTable extends Module {
       return matcher[0] !== 'tr';
     });
   }
-  getTable() {
-    let range = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.quill.getSelection();
+  getTable(range = this.quill.getSelection()) {
     if (range == null) return [null, null, null, -1];
     const [cellLine, offset] = this.quill.getLine(range.index);
     if (cellLine == null || cellLine.statics.blotName !== TableCellLine.blotName) {
@@ -2861,12 +2881,12 @@ class quill_better_table_plus_BetterTable extends Module {
     const range = this.quill.getSelection(true);
     if (range == null) return;
     let currentBlot = this.quill.getLeaf(range.index)[0];
-    let delta = new quill_better_table_plus_Delta().retain(range.index);
     if (isInTableCell(currentBlot)) {
       // eslint-disable-next-line no-console
       console.warn(`Can not insert table into a table cell.`);
       return;
     }
+    let delta = new quill_better_table_plus_Delta().retain(range.index);
     delta.insert('\n');
     // insert table column
     delta = new Array(columns).fill('\n').reduce((memo, text) => {
@@ -2966,7 +2986,7 @@ class quill_better_table_plus_BetterTable extends Module {
     this.table = null;
   }
 }
-quill_better_table_plus_BetterTable.keyboardBindings = {
+quill_better_table_plus_BetterTablePlus.keyboardBindings = {
   'table-cell-line backspace': {
     key: 'Backspace',
     format: ['table-cell-line'],
@@ -2995,7 +3015,6 @@ quill_better_table_plus_BetterTable.keyboardBindings = {
       if (range.length > 0) {
         this.quill.scroll.deleteAt(range.index, range.length); // So we do not trigger text-change
       }
-
       const lineFormats = Object.keys(context.format).reduce((formats, format) => {
         if (this.quill.scroll.query(format, Scope.BLOCK) && !Array.isArray(context.format[format])) {
           formats[format] = context.format[format];
@@ -3097,7 +3116,7 @@ function isTableCell(blot) {
 function isInTableCell(current) {
   return current && current.parent ? isTableCell(current.parent) ? true : isInTableCell(current.parent) : false;
 }
-/* harmony default export */ var quill_better_table_plus = __webpack_exports__["default"] = (quill_better_table_plus_BetterTable);
+/* harmony default export */ var quill_better_table_plus = __webpack_exports__["default"] = (quill_better_table_plus_BetterTablePlus);
 
 /***/ }),
 /* 11 */,
